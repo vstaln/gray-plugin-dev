@@ -20,7 +20,7 @@ fn manifest() -> Value {
         "display_name": "Plugin Dev",
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "1.1",
-        "commands": ["/plugin"],
+        "commands": ["/plugin-dev"],
         "subcommands": ["plugin-dev"],
         "tools": [],
     })
@@ -243,7 +243,7 @@ fn run_cli(argv: &[String]) -> Result<String, String> {
             let dir = argv.get(1).ok_or("usage: plugin check <dir>")?;
             run_check(dir)
         }
-        Some("status") | None => Ok("plugin-dev alive. /plugin new <name>, /plugin check <dir>".into()),
+        Some("status") | None => Ok("plugin-dev alive. /plugin-dev new <name>, /plugin-dev check <dir>".into()),
         Some("help") | Some("--help") | Some("-h") => Ok(
             "plugin-dev — scaffold + check gray plugins\n  new <name> [--dir PATH]\n  check <dir>".into()),
         Some(other) => Err(format!("unknown verb {other:?}")),
@@ -294,7 +294,7 @@ fn main() {
         _ => {
             if args.is_empty() {
                 if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                    println!("plugin-dev — /plugin new <name> | /plugin check <dir>");
+                    println!("plugin-dev — /plugin-dev new <name> | /plugin-dev check <dir>");
                     return;
                 }
                 let _ = sidecar();
