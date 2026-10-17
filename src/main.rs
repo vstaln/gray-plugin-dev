@@ -104,10 +104,13 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("manifest") => println!("{}", manifest()),
         Some("sidecar") => { let _ = sidecar(); }
+        Some("-h" | "--help" | "help") => println!(
+            "{{NAME}} — gray sidecar plugin. Commands: /{{NAME}} [status]. \
+             `{{NAME}} manifest` prints the manifest."),
         _ => {
             if args.is_empty() {
                 if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                    println!("{{NAME}} — gray sidecar plugin. `{{NAME}} manifest` prints the manifest.");
+                    println!("{{NAME}} — gray sidecar plugin. `{{NAME}} --help` for usage.");
                     return;
                 }
                 let _ = sidecar();
@@ -164,6 +167,29 @@ jobs:
           files: "{{NAME}}-*.tar.gz"
 "#;
 
+const LICENSE_TXT: &str = r#"MIT License
+
+Copyright (c) gray plugin authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"#;
+
 fn grayplugins_dir() -> PathBuf {
     std::env::var_os("HOME")
         .map(|h| PathBuf::from(h).join("grayplugins"))
@@ -200,6 +226,7 @@ fn scaffold(name: &str, dir: &Path) -> Result<String, String> {
     let wf = root.join(".github/workflows");
     std::fs::create_dir_all(&wf).map_err(|e| e.to_string())?;
     std::fs::write(wf.join("release.yml"), render(RELEASE_YML)).map_err(|e| e.to_string())?;
+    std::fs::write(root.join("LICENSE"), LICENSE_TXT).map_err(|e| e.to_string())?;
     Ok(root.display().to_string())
 }
 
