@@ -166,7 +166,8 @@ jobs:
 
 fn grayplugins_dir() -> PathBuf {
     std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|v| !v.is_empty())
+        .or_else(|| std::env::var_os("USERPROFILE").filter(|v| !v.is_empty()))
         .map(|h| PathBuf::from(h).join("grayplugins"))
         .unwrap_or_else(|| PathBuf::from("."))
 }
