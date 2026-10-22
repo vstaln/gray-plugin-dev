@@ -1,5 +1,5 @@
 //! plugin-dev — scaffold a new gray sidecar plugin and run its
-//! conformance loop (`cargo build` + `gray plugin check`).
+//! conformance loop (`cargo build` + `plugin-dev check`).
 //!
 //!   /plugin new <name> [--kind tool|channel|provider|bare] [--dir PATH]
 //!   /plugin check <dir>
@@ -11,6 +11,8 @@
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
+
+mod check;
 
 const NAME: &str = "plugin-dev";
 
@@ -245,10 +247,14 @@ fn run_check(dir: &str) -> Result<String, String> {
         .file_name().and_then(|s| s.to_str()).unwrap_or("")
         .trim_start_matches("gray-");
     let bin = format!("{dir}/target/debug/{name}");
-    let out = std::process::Command::new("gray")
-        .args(["plugin", "check", &bin])
+    // Conformance probe lives here now — self-spawn so the sidecar path
+    // captures the PASS/FAIL report instead of sharing stdout.
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("cannot self-spawn: {e}"))?;
+    let out = std::process::Command::new(exe)
+        .args(["check", &bin])
         .output()
-        .map_err(|e| format!("gray plugin check spawn: {e}"))?;
+        .map_err(|e| format!("plugin-dev check spawn: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).to_string()
         + &String::from_utf8_lossy(&out.stderr);
     Ok(format!("{bin}:\n{text}"))
@@ -326,6 +332,10 @@ fn main() {
                 }
                 let _ = sidecar();
                 return;
+            }
+            if let Some("check") = args.first().map(String::as_str) {
+                let dir = args.get(1).expect("usage: plugin-dev check <dir>");
+                std::process::exit(check::run(dir));
             }
             match run_cli(&args) {
                 Ok(t) => println!("{t}"),
