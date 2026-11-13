@@ -23,6 +23,7 @@ fn manifest() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "1.1",
         "commands": ["/plugin-dev"],
+        "command_descriptions": {"/plugin-dev": "build and test a plugin"},
         "subcommands": ["plugin-dev"],
         "tools": [],
     })
