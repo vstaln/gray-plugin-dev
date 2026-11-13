@@ -1,5 +1,5 @@
 //! plugin-dev — scaffold a new gray sidecar plugin and run its
-//! conformance loop (`cargo build` + `gray plugin check`).
+//! conformance loop (`cargo build` + `plugin-dev check`).
 //!
 //!   /plugin new <name> [--kind tool|channel|provider|bare] [--dir PATH]
 //!   /plugin check <dir>
@@ -12,6 +12,8 @@ use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
+mod check;
+
 const NAME: &str = "plugin-dev";
 
 fn manifest() -> Value {
@@ -21,6 +23,7 @@ fn manifest() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "1.1",
         "commands": ["/plugin-dev"],
+        "command_descriptions": {"/plugin-dev": "build and test a plugin"},
         "subcommands": ["plugin-dev"],
         "tools": [],
     })
@@ -104,10 +107,13 @@ fn main() {
     match args.first().map(String::as_str) {
         Some("manifest") => println!("{}", manifest()),
         Some("sidecar") => { let _ = sidecar(); }
+        Some("-h" | "--help" | "help") => println!(
+            "{{NAME}} — gray sidecar plugin. Commands: /{{NAME}} [status]. \
+             `{{NAME}} manifest` prints the manifest."),
         _ => {
             if args.is_empty() {
                 if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-                    println!("{{NAME}} — gray sidecar plugin. `{{NAME}} manifest` prints the manifest.");
+                    println!("{{NAME}} — gray sidecar plugin. `{{NAME}} --help` for usage.");
                     return;
                 }
                 let _ = sidecar();
@@ -164,6 +170,29 @@ jobs:
           files: "{{NAME}}-*.tar.gz"
 "#;
 
+const LICENSE_TXT: &str = r#"MIT License
+
+Copyright (c) gray plugin authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"#;
+
 fn grayplugins_dir() -> PathBuf {
     std::env::var_os("HOME")
         .filter(|v| !v.is_empty())
@@ -202,6 +231,7 @@ fn scaffold(name: &str, dir: &Path) -> Result<String, String> {
     let wf = root.join(".github/workflows");
     std::fs::create_dir_all(&wf).map_err(|e| e.to_string())?;
     std::fs::write(wf.join("release.yml"), render(RELEASE_YML)).map_err(|e| e.to_string())?;
+    std::fs::write(root.join("LICENSE"), LICENSE_TXT).map_err(|e| e.to_string())?;
     Ok(root.display().to_string())
 }
 
@@ -220,10 +250,14 @@ fn run_check(dir: &str) -> Result<String, String> {
         .file_name().and_then(|s| s.to_str()).unwrap_or("")
         .trim_start_matches("gray-");
     let bin = format!("{dir}/target/debug/{name}");
-    let out = std::process::Command::new("gray")
-        .args(["plugin", "check", &bin])
+    // Conformance probe lives here now — self-spawn so the sidecar path
+    // captures the PASS/FAIL report instead of sharing stdout.
+    let exe = std::env::current_exe()
+        .map_err(|e| format!("cannot self-spawn: {e}"))?;
+    let out = std::process::Command::new(exe)
+        .args(["check", &bin])
         .output()
-        .map_err(|e| format!("gray plugin check spawn: {e}"))?;
+        .map_err(|e| format!("plugin-dev check spawn: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).to_string()
         + &String::from_utf8_lossy(&out.stderr);
     Ok(format!("{bin}:\n{text}"))
@@ -301,6 +335,10 @@ fn main() {
                 }
                 let _ = sidecar();
                 return;
+            }
+            if let Some("check") = args.first().map(String::as_str) {
+                let dir = args.get(1).expect("usage: plugin-dev check <dir>");
+                std::process::exit(check::run(dir));
             }
             match run_cli(&args) {
                 Ok(t) => println!("{t}"),
