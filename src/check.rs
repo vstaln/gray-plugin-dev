@@ -27,7 +27,7 @@ impl Report {
 
 /// `gray-plugin` resolve_argv: dir → executable argv (executable file,
 /// plugin.sh, target-triple leg, or the single exec in the dir).
-fn resolve_argv(dir: &Path) -> Result<Vec<String>, String> {
+pub(crate) fn resolve_argv(dir: &Path) -> Result<Vec<String>, String> {
     let is_exec = |p: &Path| {
         let Ok(m) = std::fs::metadata(p) else {
             return false;
@@ -94,7 +94,7 @@ fn resolve_argv(dir: &Path) -> Result<Vec<String>, String> {
 
 /// One sidecar process: a writer half and a reply channel fed by a
 /// reader thread (requests time out on recv_timeout).
-struct Sidecar {
+pub(crate) struct Sidecar {
     child: Child,
     stdin: ChildStdin,
     replies: mpsc::Receiver<Value>,
@@ -102,7 +102,7 @@ struct Sidecar {
 }
 
 impl Sidecar {
-    fn spawn(argv: &[String]) -> Result<Self, String> {
+    pub(crate) fn spawn(argv: &[String]) -> Result<Self, String> {
         let mut child = Command::new(&argv[0])
             .args(&argv[1..])
             .stdin(Stdio::piped())
@@ -138,7 +138,7 @@ impl Sidecar {
     }
 
     /// Send a request and wait for its matching-id reply up to `ttl`.
-    fn request(&mut self, method: &str, params: Value, ttl: Duration) -> Result<Value, String> {
+    pub(crate) fn request(&mut self, method: &str, params: Value, ttl: Duration) -> Result<Value, String> {
         self.next_id += 1;
         let id = self.next_id;
         self.write(&json!({"id": id, "method": method, "params": params}))?;
@@ -189,7 +189,7 @@ impl Sidecar {
         Ok((ra.unwrap(), rb.unwrap()))
     }
 
-    fn notify(&mut self, method: &str, params: Value) -> Result<(), String> {
+    pub(crate) fn notify(&mut self, method: &str, params: Value) -> Result<(), String> {
         self.write(&json!({"method": method, "params": params}))
     }
 }

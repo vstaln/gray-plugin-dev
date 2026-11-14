@@ -23,12 +23,37 @@ gray plugin install plugin-dev
 ecosystem: stamp a working sidecar skeleton, then drive the
 build-and-check loop until it passes the wire contract.
 
-## Commands
+## Creator mode
+
+```
+/create a tool that returns the current moon phase for a date
+```
+
+`/create` opens a creator turn with a fixed recipe: name the plugin, scaffold
+it, write the tool, run the conformance check, call every tool with real
+arguments, install it, then report back. The whole loop needs neither a Rust
+build nor a restart.
+
+| Tool | What it does |
+|---|---|
+| `plugin_dev_new {name, lang, description}` | Stamps `~/.gray/plugins-dev/gray-<name>/` with a single-file `main.py` (stdlib only, `--lang shell` for POSIX sh), `plugin.sh` (`exec python3 "$here/main.py" "$@"`) and `README.md` — full protocol already implemented, one sample tool. |
+| `plugin_dev_check {name}` | `gray plugin check` on the dev dir, PASS/FAIL lines verbatim. |
+| `plugin_dev_call {name, tool, args}` | Spawns the dev sidecar and invokes one tool over the wire — this is how a brand-new tool is tested inside the running session. |
+| `plugin_dev_install {name}` | Symlinks the dev dir to `~/.gray/plugins/<name>`, writes `<name>-manifest.json` from the plugin's own manifest, and adds a `dev`-marked `lock.json` entry. Refuses to overwrite a plugin it did not install. |
+| `plugin_dev_fork {name}` | Copies an installed plugin's source repo under `~/grayplugins` into `~/.gray/plugins-dev`; refuses with the reason when the source is a release tarball. |
+| `plugin_dev_uninstall {name}` | Drops the symlink, manifest json and lock entry of a dev install. |
+
+An installed plugin is only visible to a *new* Gray process: the session reads
+`plugins/<name>-manifest.json` (and `lock.json`) once at boot, so a dev plugin
+becomes callable as tools and slash commands after `/restart` — until then
+`plugin_dev_call` is the way to exercise it.
+
+## Rust scaffolding
 
 | Command | What it does |
 |---|---|
-| `/plugin new <name> [--kind tool\|channel\|provider\|bare] [--dir PATH]` | Scaffold `gray-<name>/`: `Cargo.toml`, `src/main.rs`, `src/lib.rs`, `README.md`, `LICENSE`, and a release workflow that produces the tarball+sha256 shape the index expects. |
-| `/plugin check <dir>` | `cargo build` + `gray plugin check` in one shot. |
+| `/plugin-dev new <name> [--lang python\|shell] [--dir PATH] [--description TEXT]` | Stamps a script sidecar (default `--lang rust`: `Cargo.toml`, `src/main.rs`, `src/lib.rs`, `README.md`, `LICENSE`, release workflow producing the tarball+sha256 shape the index expects). |
+| `/plugin-dev check <dir>` | `cargo build` when the dir has a `Cargo.toml`, then `gray plugin check`. |
 
 ## The stamped contract
 

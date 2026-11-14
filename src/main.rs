@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 
 mod check;
+mod dev;
 
 const NAME: &str = "plugin-dev";
 
@@ -22,11 +23,140 @@ fn manifest() -> Value {
         "display_name": "Plugin Dev",
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": "1.1",
-        "commands": ["/plugin-dev"],
-        "command_descriptions": {"/plugin-dev": "build and test a plugin"},
+        "commands": ["/create", "/plugin-dev"],
+        "command_descriptions": {
+            "/create": "build a working plugin from a plain-English description",
+            "/plugin-dev": "build and check a plugin"
+        },
         "subcommands": ["plugin-dev"],
-        "tools": [],
+        "tools": [
+            {
+                "name": "plugin_dev_new",
+                "description": "Stamp a single-file script plugin at ~/.gray/plugins-dev/gray-<name>/ (main.py or main.sh, plugin.sh, README.md) that already speaks the full Gray sidecar protocol and exposes one sample tool.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Short lowercase name: letters, digits, hyphen. The directory is gray-<name> and tools are prefixed <name>_."},
+                        "lang": {"type": "string", "enum": ["python", "shell"], "description": "python (default) for a stdlib-only Python 3 sidecar, shell for POSIX sh."},
+                        "description": {"type": "string", "description": "One line on what the plugin does; becomes its command description and README."}
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "plugin_dev_check",
+                "description": "Run the Gray conformance check (gray plugin check) on a dev plugin by name or path and return its PASS/FAIL lines verbatim.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Plugin name (dev dir gray-<name>) or an explicit directory path."}
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "plugin_dev_install",
+                "description": "Install a dev plugin live: symlink ~/.gray/plugins-dev/gray-<name> to ~/.gray/plugins/<name>, write <name>-manifest.json from the plugin's own manifest and add a lock.json entry marked dev. Refuses to overwrite a plugin that was not installed this way.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Plugin name; the dev directory must already exist."}
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "plugin_dev_call",
+                "description": "Spawn a dev plugin right now and invoke one of its tools over the sidecar wire, returning that tool's output. This is how a freshly written tool gets tested inside the current session, with no restart and no hot reload.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Plugin name (dev dir gray-<name>)."},
+                        "tool": {"type": "string", "description": "Tool name exactly as declared in the plugin manifest."},
+                        "args": {"type": "object", "description": "Arguments object for the tool."}
+                    },
+                    "required": ["name", "tool"]
+                }
+            },
+            {
+                "name": "plugin_dev_fork",
+                "description": "Copy an installed plugin's source repo into ~/.gray/plugins-dev so it can be modified, but only when that repo lives under ~/grayplugins; otherwise refuse and say why.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Installed plugin name."}
+                    },
+                    "required": ["name"]
+                }
+            },
+            {
+                "name": "plugin_dev_uninstall",
+                "description": "Remove a dev-installed plugin: drop the symlink, its manifest json and its lock entry. Refuses plugins that were not installed by plugin_dev_install.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string", "description": "Plugin name."}
+                    },
+                    "required": ["name"]
+                }
+            }
+        ],
     })
+}
+
+const CREATE_PROMPT: &str = "Creator mode. Build a Gray plugin that does: {description}. Steps: 1) restate in one line what the plugin's tools/commands will be, pick a short name. 2) plugin_dev_new with lang python unless the task needs something Python stdlib can't do. 3) write the code in ~/.gray/plugins-dev/gray-<name>/main.py; stdlib only; keep stdout wire-only. 4) plugin_dev_check until it passes. 5) plugin_dev_call each tool with realistic arguments and confirm the output is right; fix and repeat until it is. 6) plugin_dev_install. 7) tell the user in two or three sentences what it does, how to call it, and that it is fully live after /restart (callable now through plugin_dev_call). Never touch plugins outside ~/.gray/plugins-dev except via plugin_dev_install.";
+
+fn create_prompt(description: &str) -> String {
+    CREATE_PROMPT.replace("{description}", description.trim())
+}
+
+fn run_tool(name: &str, args: &Value) -> (String, bool) {
+    let text = |k: &str| args[k].as_str().unwrap_or("").trim().to_string();
+    let outcome: Result<String, String> = match name {
+        "plugin_dev_new" => {
+            let lang = text("lang");
+            dev::new(&text("name"), &lang, &text("description"))
+                .map(|path| format!("scaffolded {path}"))
+        }
+        "plugin_dev_check" => dev::check(&text("name")),
+        "plugin_dev_install" => dev::install(&text("name")),
+        "plugin_dev_uninstall" => dev::uninstall(&text("name")),
+        "plugin_dev_fork" => dev::fork(&text("name")),
+        "plugin_dev_call" => {
+            let call_args = if args["args"].is_object() { args["args"].clone() } else { json!({}) };
+            return match dev::call(&text("name"), &text("tool"), call_args) {
+                Ok((content, is_error)) => (content, is_error),
+                Err(e) => (e, true),
+            };
+        }
+        other => Err(format!("unknown tool {other:?}")),
+    };
+    match outcome {
+        Ok(text) => (text, false),
+        Err(e) => (e, true),
+    }
+}
+
+fn run_command(name: &str, params_argv: &Value, raw: &str) -> Value {
+    if name == "/create" {
+        let from_argv = params_argv
+            .as_array()
+            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+            .unwrap_or_default();
+        let description = match raw.trim() {
+            "" => from_argv,
+            r => r.to_string(),
+        };
+        if description.trim().is_empty() {
+            return json!({"text": "usage: /create <what the plugin should do>"});
+        }
+        return json!({"prompt": create_prompt(&description)});
+    }
+    let argv: Vec<String> = params_argv
+        .as_array()
+        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .unwrap_or_default();
+    json!({"text": run_cli(&argv).unwrap_or_else(|e| e)})
 }
 
 const MAIN_TMPL: &str = r#"//! {{NAME}} — a gray sidecar plugin.
@@ -236,37 +366,56 @@ fn scaffold(name: &str, dir: &Path) -> Result<String, String> {
 }
 
 fn run_check(dir: &str) -> Result<String, String> {
-    let build = std::process::Command::new("cargo")
-        .args(["build"])
-        .current_dir(dir)
-        .output()
-        .map_err(|e| format!("cargo build spawn: {e}"))?;
-    if !build.status.success() {
-        return Err(format!(
-            "cargo build failed:\n{}", String::from_utf8_lossy(&build.stderr)));
+    let rust = Path::new(dir).join("Cargo.toml").is_file();
+    let mut target = dir.to_string();
+    if rust {
+        let build = std::process::Command::new("cargo")
+            .args(["build"])
+            .current_dir(dir)
+            .output()
+            .map_err(|e| format!("cargo build spawn: {e}"))?;
+        if !build.status.success() {
+            return Err(format!(
+                "cargo build failed:\n{}", String::from_utf8_lossy(&build.stderr)));
+        }
+        let name = Path::new(dir)
+            .file_name().and_then(|s| s.to_str()).unwrap_or("")
+            .trim_start_matches("gray-");
+        target = format!("{dir}/target/debug/{name}");
     }
-    // find the binary: name = dir minus gray- prefix
-    let name = Path::new(dir)
-        .file_name().and_then(|s| s.to_str()).unwrap_or("")
-        .trim_start_matches("gray-");
-    let bin = format!("{dir}/target/debug/{name}");
     // Conformance probe lives here now — self-spawn so the sidecar path
     // captures the PASS/FAIL report instead of sharing stdout.
     let exe = std::env::current_exe()
         .map_err(|e| format!("cannot self-spawn: {e}"))?;
     let out = std::process::Command::new(exe)
-        .args(["check", &bin])
+        .args(["check", &target])
         .output()
         .map_err(|e| format!("plugin-dev check spawn: {e}"))?;
     let text = String::from_utf8_lossy(&out.stdout).to_string()
         + &String::from_utf8_lossy(&out.stderr);
-    Ok(format!("{bin}:\n{text}"))
+    Ok(format!("{target}:\n{text}"))
 }
 
 fn run_cli(argv: &[String]) -> Result<String, String> {
     match argv.first().map(String::as_str) {
         Some("new") => {
-            let name = argv.get(1).ok_or("usage: plugin new <name> [--dir PATH]")?;
+            let name = argv.get(1)
+                .ok_or("usage: plugin new <name> [--lang python|shell] [--dir PATH]")?;
+            let lang = argv.iter().position(|a| a == "--lang")
+                .and_then(|i| argv.get(i + 1))
+                .map(String::as_str)
+                .unwrap_or("");
+            if matches!(lang, "python" | "python3" | "py" | "shell" | "sh") {
+                let description = argv.iter().position(|a| a == "--description")
+                    .and_then(|i| argv.get(i + 1))
+                    .map(String::as_str)
+                    .unwrap_or("");
+                let path = dev::new(name, lang, description)?;
+                let dir = dev::dev_dir(name.trim_start_matches("gray-"));
+                let check = dev::check(&dir.display().to_string())
+                    .unwrap_or_else(|e| format!("check failed: {e}"));
+                return Ok(format!("scaffolded {path}\n\n{check}"));
+            }
             let dir = argv.iter().position(|a| a == "--dir")
                 .and_then(|i| argv.get(i + 1))
                 .map(PathBuf::from)
@@ -279,9 +428,9 @@ fn run_cli(argv: &[String]) -> Result<String, String> {
             let dir = argv.get(1).ok_or("usage: plugin check <dir>")?;
             run_check(dir)
         }
-        Some("status") | None => Ok("plugin-dev alive. /plugin-dev new <name>, /plugin-dev check <dir>".into()),
+        Some("status") | None => Ok("plugin-dev alive. /create <what it does>, /plugin-dev new <name> [--lang python|shell], /plugin-dev check <dir>".into()),
         Some("help") | Some("--help") | Some("-h") => Ok(
-            "plugin-dev — scaffold + check gray plugins\n  new <name> [--dir PATH]\n  check <dir>".into()),
+            "plugin-dev — build plugins from a description or scaffold+check them\n  /create <description>\n  new <name> [--lang python|shell] [--dir PATH]\n  check <dir>".into()),
         Some(other) => Err(format!("unknown verb {other:?}")),
     }
 }
@@ -299,13 +448,18 @@ fn sidecar() -> std::io::Result<()> {
             Some(id) => {
                 let reply = if method == "plugin/manifest" {
                     json!({"id": id, "result": manifest()})
+                } else if method == "tool/call" {
+                    let (content, is_error) = run_tool(
+                        v["params"]["name"].as_str().unwrap_or(""),
+                        &v["params"]["args"],
+                    );
+                    json!({"id": id, "result": {"content": content, "is_error": is_error}})
                 } else if method == "command/run" {
-                    let argv: Vec<String> = v["params"]["argv"].as_array()
-                        .map(|a| a.iter().filter_map(Value::as_str)
-                            .map(str::to_string).collect())
-                        .unwrap_or_default();
-                    let text = run_cli(&argv).unwrap_or_else(|e| e);
-                    json!({"id": id, "result": {"text": text}})
+                    json!({"id": id, "result": run_command(
+                        v["params"]["name"].as_str().unwrap_or(""),
+                        &v["params"]["argv"],
+                        v["params"]["raw"].as_str().unwrap_or(""),
+                    )})
                 } else {
                     json!({"id": id, "error": {"code": -32601,
                         "message": format!("method not found: {method}")}})
