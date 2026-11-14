@@ -64,6 +64,12 @@ Generated plugins implement the full sidecar protocol out of the box:
 - exactly one reply per request `id`, silence on notifications,
   prompt EOF/shutdown exit, `-32601` on unknown methods
 - a sample tool + command wired end to end so `check` passes immediately
+- a top-level `description` — the line the slash menu shows when a command
+  declares no description of its own
+- `command_descriptions` — `{"/<name>": "..."}` for each command the plugin claims
+- `completion` entries as `{"arg": "...", "description": "..."}` objects — the
+  slash menu lists `/<name> <arg>` rows with that text; bare strings still
+  complete, they just show no description
 
 ## Build from source
 

@@ -29,8 +29,10 @@ def manifest():
                 "parameters": {"type": "object", "properties": {}},
             }
         ],
+        "description": DESCRIPTION,
         "commands": ["/" + NAME],
         "command_descriptions": {"/" + NAME: DESCRIPTION},
+        "completion": [{"arg": "status", "description": "report that the sidecar is alive"}],
     }
 
 
@@ -315,8 +317,10 @@ pub fn new(name: &str, lang: &str, description: &str) -> Result<String, String> 
                     "description": format!("{display} health probe - returns pong."),
                     "parameters": {"type": "object", "properties": {}}
                 }],
+                "description": desc,
                 "commands": [format!("/{name}")],
                 "command_descriptions": {format!("/{name}"): desc},
+                "completion": [{"arg": "status", "description": "report that the sidecar is alive"}],
             })
             .to_string();
             SH_TMPL
