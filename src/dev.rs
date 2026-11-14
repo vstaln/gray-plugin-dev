@@ -157,8 +157,11 @@ Implemented out of the box:
 
 ```sh
 gray plugin check ~/.gray/plugins-dev/gray-{{NAME}}
-gray plugin call {{NAME}} {{NAME}}_ping   # only after install
 ```
+
+Tool calls arrive as `{"name": ..., "args": {...}, "session": ...}` - read the
+arguments from `params["args"]`. From a session, exercise a tool before
+installing with `plugin_dev_call`.
 
 Install it live with `gray plugin install ~/.gray/plugins-dev/gray-{{NAME}}`
 (or `plugin_dev_install` from a session). Replace the sample tool in
