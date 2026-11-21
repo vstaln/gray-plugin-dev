@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 struct Report {
     name: &'static str,
@@ -49,7 +49,10 @@ pub(crate) fn resolve_argv(dir: &Path) -> Result<Vec<String>, String> {
         return Ok(vec![dir.to_string_lossy().into_owned()]);
     }
     if !dir.is_dir() {
-        return Err(format!("{} is not a directory (or executable)", dir.display()));
+        return Err(format!(
+            "{} is not a directory (or executable)",
+            dir.display()
+        ));
     }
     let script = dir.join("plugin.sh");
     if is_exec(&script) {
@@ -138,7 +141,12 @@ impl Sidecar {
     }
 
     /// Send a request and wait for its matching-id reply up to `ttl`.
-    pub(crate) fn request(&mut self, method: &str, params: Value, ttl: Duration) -> Result<Value, String> {
+    pub(crate) fn request(
+        &mut self,
+        method: &str,
+        params: Value,
+        ttl: Duration,
+    ) -> Result<Value, String> {
         self.next_id += 1;
         let id = self.next_id;
         self.write(&json!({"id": id, "method": method, "params": params}))?;
@@ -207,7 +215,10 @@ fn outcome_text(o: &Value) -> String {
     }
     for k in ["say", "prompt", "model_picker", "panel", "picker"] {
         if o.get(k).is_some() {
-            return format!("{k}: {}", o[k].to_string().chars().take(60).collect::<String>());
+            return format!(
+                "{k}: {}",
+                o[k].to_string().chars().take(60).collect::<String>()
+            );
         }
     }
     format!("{}", o)
@@ -275,38 +286,38 @@ pub fn run(dir: &str) -> i32 {
     });
 
     reports.push(match &probe {
-        Ok(o) if o.status.success() => {
-            match serde_json::from_slice::<Value>(&o.stdout) {
-                Ok(v) => {
-                    let name_ok =
-                        v.get("name").and_then(Value::as_str) == m["name"].as_str();
-                    let proto_ok = v.get("protocol").is_some();
-                    Report {
-                        name: "argv-manifest",
-                        pass: name_ok && proto_ok,
-                        detail: format!(
-                            "argv manifest {} wire (name={}, protocol present={})",
-                            if name_ok && proto_ok {
-                                "agrees with"
-                            } else {
-                                "disagrees with"
-                            },
-                            name_ok,
-                            proto_ok
-                        ),
-                    }
-                }
-                Err(e) => Report {
+        Ok(o) if o.status.success() => match serde_json::from_slice::<Value>(&o.stdout) {
+            Ok(v) => {
+                let name_ok = v.get("name").and_then(Value::as_str) == m["name"].as_str();
+                let proto_ok = v.get("protocol").is_some();
+                Report {
                     name: "argv-manifest",
-                    pass: false,
-                    detail: format!("manifest arg printed non-JSON: {e}"),
-                },
+                    pass: name_ok && proto_ok,
+                    detail: format!(
+                        "argv manifest {} wire (name={}, protocol present={})",
+                        if name_ok && proto_ok {
+                            "agrees with"
+                        } else {
+                            "disagrees with"
+                        },
+                        name_ok,
+                        proto_ok
+                    ),
+                }
             }
-        }
+            Err(e) => Report {
+                name: "argv-manifest",
+                pass: false,
+                detail: format!("manifest arg printed non-JSON: {e}"),
+            },
+        },
         Ok(o) => Report {
             name: "argv-manifest",
             pass: false,
-            detail: format!("manifest arg exited {:?} — install probe would fail", o.status.code()),
+            detail: format!(
+                "manifest arg exited {:?} — install probe would fail",
+                o.status.code()
+            ),
         },
         Err(e) => Report {
             name: "argv-manifest",
@@ -326,7 +337,9 @@ pub fn run(dir: &str) -> i32 {
                 pass: true,
                 detail: format!(
                     "{name} → {} in {:?}",
-                    v["content"].as_str().map(|s| format!("{} bytes", s.len()))
+                    v["content"]
+                        .as_str()
+                        .map(|s| format!("{} bytes", s.len()))
                         .unwrap_or_else(|| v.to_string()),
                     t.elapsed()
                 ),
@@ -344,7 +357,10 @@ pub fn run(dir: &str) -> i32 {
             detail: if both.is_ok() {
                 "2 concurrent tool/calls both resolved".to_string()
             } else {
-                format!("concurrent tool/calls failed: {}", both.err().unwrap_or_default())
+                format!(
+                    "concurrent tool/calls failed: {}",
+                    both.err().unwrap_or_default()
+                )
             },
         });
     }
@@ -422,9 +438,7 @@ pub fn run(dir: &str) -> i32 {
     let exited = loop {
         match sc.child.try_wait() {
             Ok(Some(_)) => break true,
-            Ok(None) if Instant::now() < wait_deadline => {
-                thread::sleep(Duration::from_millis(50))
-            }
+            Ok(None) if Instant::now() < wait_deadline => thread::sleep(Duration::from_millis(50)),
             _ => break false,
         };
     };
