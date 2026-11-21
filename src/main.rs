@@ -8,9 +8,9 @@
 //! README.md, LICENSE, .github/workflows/release.yml} — the release
 //! workflow produces the tarball+sha256 shape the index expects.
 
+use serde_json::{json, Value};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use serde_json::{json, Value};
 
 mod check;
 mod dev;
@@ -123,7 +123,11 @@ fn run_tool(name: &str, args: &Value) -> (String, bool) {
         "plugin_dev_uninstall" => dev::uninstall(&text("name")),
         "plugin_dev_fork" => dev::fork(&text("name")),
         "plugin_dev_call" => {
-            let call_args = if args["args"].is_object() { args["args"].clone() } else { json!({}) };
+            let call_args = if args["args"].is_object() {
+                args["args"].clone()
+            } else {
+                json!({})
+            };
             return match dev::call(&text("name"), &text("tool"), call_args) {
                 Ok((content, is_error)) => (content, is_error),
                 Err(e) => (e, true),
@@ -141,7 +145,12 @@ fn run_command(name: &str, params_argv: &Value, raw: &str) -> Value {
     if name == "/create" {
         let from_argv = params_argv
             .as_array()
-            .map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" "))
+            .map(|a| {
+                a.iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
             .unwrap_or_default();
         let description = match raw.trim() {
             "" => from_argv,
@@ -154,7 +163,12 @@ fn run_command(name: &str, params_argv: &Value, raw: &str) -> Value {
     }
     let argv: Vec<String> = params_argv
         .as_array()
-        .map(|a| a.iter().filter_map(Value::as_str).map(str::to_string).collect())
+        .map(|a| {
+            a.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect()
+        })
         .unwrap_or_default();
     json!({"text": run_cli(&argv).unwrap_or_else(|e| e)})
 }
@@ -332,8 +346,11 @@ fn grayplugins_dir() -> PathBuf {
 }
 
 fn scaffold(name: &str, dir: &Path) -> Result<String, String> {
-    if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        || name.is_empty() {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        || name.is_empty()
+    {
         return Err("name must be [a-z0-9-_]".into());
     }
     let root = dir.join(format!("gray-{name}"));
@@ -344,16 +361,26 @@ fn scaffold(name: &str, dir: &Path) -> Result<String, String> {
     std::fs::create_dir_all(&src).map_err(|e| e.to_string())?;
     let display = name
         .split('-')
-        .map(|w| { let mut c = w.chars(); c.next().map(|f| f.to_uppercase().collect::<String>()).unwrap_or_default() + c.as_str() })
+        .map(|w| {
+            let mut c = w.chars();
+            c.next()
+                .map(|f| f.to_uppercase().collect::<String>())
+                .unwrap_or_default()
+                + c.as_str()
+        })
         .collect::<Vec<_>>()
         .join(" ");
-    let render = |t: &str| t
-        .replace("{{NAME}}", name)
-        .replace("{{CRATE}}", &name.replace('-', "_"))
-        .replace("{{DISPLAY}}", &display);
+    let render = |t: &str| {
+        t.replace("{{NAME}}", name)
+            .replace("{{CRATE}}", &name.replace('-', "_"))
+            .replace("{{DISPLAY}}", &display)
+    };
     std::fs::write(src.join("main.rs"), render(MAIN_TMPL)).map_err(|e| e.to_string())?;
-    std::fs::write(src.join("lib.rs"),
-        format!("//! empty lib — {name} binary is self-contained.\n")).map_err(|e| e.to_string())?;
+    std::fs::write(
+        src.join("lib.rs"),
+        format!("//! empty lib — {name} binary is self-contained.\n"),
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(root.join("Cargo.toml"), render(CARGO_TMPL)).map_err(|e| e.to_string())?;
     std::fs::write(root.join("README.md"),
         format!("# gray-{name}\n\n{display} — gray agent harness plugin.\n\n## Dev\n\n```sh\ncargo build\ngray plugin check target/debug/{name}\npython3 ../.port-tasks/qa/drive.py target/debug/{name}\n```\n"))
@@ -376,23 +403,26 @@ fn run_check(dir: &str) -> Result<String, String> {
             .map_err(|e| format!("cargo build spawn: {e}"))?;
         if !build.status.success() {
             return Err(format!(
-                "cargo build failed:\n{}", String::from_utf8_lossy(&build.stderr)));
+                "cargo build failed:\n{}",
+                String::from_utf8_lossy(&build.stderr)
+            ));
         }
         let name = Path::new(dir)
-            .file_name().and_then(|s| s.to_str()).unwrap_or("")
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
             .trim_start_matches("gray-");
         target = format!("{dir}/target/debug/{name}");
     }
     // Conformance probe lives here now — self-spawn so the sidecar path
     // captures the PASS/FAIL report instead of sharing stdout.
-    let exe = std::env::current_exe()
-        .map_err(|e| format!("cannot self-spawn: {e}"))?;
+    let exe = std::env::current_exe().map_err(|e| format!("cannot self-spawn: {e}"))?;
     let out = std::process::Command::new(exe)
         .args(["check", &target])
         .output()
         .map_err(|e| format!("plugin-dev check spawn: {e}"))?;
-    let text = String::from_utf8_lossy(&out.stdout).to_string()
-        + &String::from_utf8_lossy(&out.stderr);
+    let text =
+        String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr);
     Ok(format!("{target}:\n{text}"))
 }
 
@@ -440,7 +470,9 @@ fn sidecar() -> std::io::Result<()> {
     let mut out = std::io::stdout().lock();
     for line in stdin.lock().lines() {
         let line = line?;
-        let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
+        let Ok(v) = serde_json::from_str::<Value>(&line) else {
+            continue;
+        };
         let method = v["method"].as_str().unwrap_or("");
         match v.get("id").cloned() {
             None if method == "plugin/shutdown" => return Ok(()),
@@ -480,7 +512,9 @@ fn main() {
     };
     match args.first().map(String::as_str) {
         Some("manifest") => println!("{}", manifest()),
-        Some("sidecar") => { let _ = sidecar(); }
+        Some("sidecar") => {
+            let _ = sidecar();
+        }
         _ => {
             if args.is_empty() {
                 if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -496,7 +530,10 @@ fn main() {
             }
             match run_cli(&args) {
                 Ok(t) => println!("{t}"),
-                Err(e) => { eprintln!("{e}"); std::process::exit(1); }
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
             }
         }
     }
